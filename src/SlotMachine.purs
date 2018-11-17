@@ -1,97 +1,86 @@
 module SlotMachine where
 
-import CSS hiding (bottom,top,map)
 import Prelude
 
-import Assets (Assets_Svg(..), File(..), Svg, assets_svg)
-import CSS as CSS
-import CSS.Common (auto)
-import CSS.Common as Common
-import CSS.Overflow (hidden, overflow, overflowAuto)
+import Assets (Assets(..), Assets_Svg, File(File), assets_svg)
+import CSS (CSS, Color, absolute, alignItems, block, borderBox, boxSizing, color, column, display, flex, flexDirection, flexGrow, flexShrink, fontFaceFamily, fontSize, fromString, grid, height, inlineBlock, justifyContent, key, lineHeight, marginBottom, maxWidth, padding, paddingTop, pct, position, px, relative, rgb, row, vh, width)
+import CSS (bottom, left, right, top) as CSS
+import CSS.Common as CMN
+import CSS.Overflow (overflow, overflowAuto)
 import CSS.TextAlign (textAlign, center)
+import Control.Monad.Aff (Aff)
+import Control.Monad.Eff.Random (RANDOM, randomInt)
 import Copy (Copy, CopyElem(CpLink, CpStr), copy)
-import Data.Array (head)
+import Data.Array (length)
 import Data.Enum (enumFromTo)
-import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid (mempty)
-import Halogen (HTML)
+import Data.Traversable (traverse)
+import Data.Typelevel.Num (D3)
+import Data.Vec (Vec, empty, toArray, (+>))
+import Halogen (ClassName(ClassName), IProp, liftEff)
 import Halogen as H
 import Halogen.HTML as HH
-import Halogen.HTML.CSS as CSS
+import Halogen.HTML.CSS (style) as CSS
+import Halogen.HTML.Events (input_)
+import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
-import Prelude as Prelude
 import Types (Link)
 
-type State = Boolean
+
+type State = Vec D3 Int
 
 type Config =
   { n :: Int
   }
 
-data St
-  = Rolling
-  | Result (Array Int)
-
 data Query a
-  = Toggle a
-  | IsOn (Boolean -> a)
+  = Roll a
 
-data Message = Toggled Boolean
+type IO eff =
+  (Aff (random :: RANDOM | eff))
 
-component :: forall m. H.Component HH.HTML Query Unit Message m
-component =
-  H.component
+ui :: forall eff. H.Component HH.HTML Query Unit Void (IO eff)
+ui =
+  H.lifecycleComponent
     { initialState: const initialState
     , render
     , eval
     , receiver: const Nothing
+    , initializer : Nothing
+    , finalizer : Nothing
     }
   where
 
   initialState :: State
-  initialState = false
+  initialState = 1 +> 2 +> 3 +> empty
 
   render :: State -> H.ComponentHTML Query
   render state =
-    let
-      label = if state then "On" else "O"
-    in
-      viewMain
+    viewMain state Nothing
 
-  eval :: Query ~> H.ComponentDSL State Query Message m
+  eval :: Query ~> H.ComponentDSL State Query Void (IO eff)
   eval = case _ of
-    Toggle next -> do
+    Roll next -> do
       state <- H.get
-      let nextState = not state
-      H.put nextState
-      H.raise $ Toggled nextState
+      let l = (enumFromTo bottom top :: Array Assets_Svg) # length
+      randVec <- pure (randomInt 0 (l-1))
+        # traverse id
+        # liftEff
+      H.put randVec
       pure next
-    IsOn reply -> do
-      state <- H.get
-      pure (reply state)
 
 
-cls =
-  { viewMain:
-    { _main: H.ClassName "SlotMachine.viewMain"
-    , body: H.ClassName "SlotMachine.viewMain.body"
-    , footer: H.ClassName "SlotMachine.viewMain.footer"
-    }
-  , viewBody:
-    { _main: H.ClassName "SlotMachine.viewBody fn"
-    }
-  }
+--------------------------------------------------------------------------------
 
-viewMain :: forall p i. HTML p i
-viewMain =
-  HH.div [ HP.class_ cls.viewMain._main, CSS.style style ]
-    [ HH.div [ HP.class_ cls.viewMain.body, CSS.style styleBody ]
-      [ viewBody
-      ]
-    , HH.div [ HP.class_ cls.viewMain.footer ]
-      [ viewFooter
-      ]
+viewMain :: State -> Maybe CSS -> H.ComponentHTML Query
+viewMain state outStyle =
+  HH.div
+    [ nameIt "viewMain"
+    , combineStyles style outStyle
+    ]
+    [ viewBody state (Just styleBody)
+    , viewFooter Nothing
     ]
   where
     style = do
@@ -106,149 +95,126 @@ viewMain =
     styleBody = do
       overflow overflowAuto
 
-styleMain =
-  { _main: do
-      key (fromString "grid-gap") "20px"
-      key (fromString "grid-template-rows") "1fr auto"
-      key (fromString "grid-gap") "20px"
-      display grid
-      height $ pct 100.0
-      boxSizing borderBox
-      padding (px 27.0) (px 20.0) (px 10.0) (px 20.0)
-  , body: do
-      overflow overflowAuto
-  }
+--------------------------------------------------------------------------------
 
+viewFooter :: Maybe CSS -> H.ComponentHTML Query
+viewFooter outStyle =
+  viewCopy copy.svgCredits outStyle
 
-viewFooter = viewCopy copy.svgCredits
+--------------------------------------------------------------------------------
 
-viewBody =
-  HH.div [ HP.class_ cls.viewBody._main, CSS.style style ]
-    [ HH.div [CSS.style styleSlot] [viewSlot]
-    , viewButton
+viewBody :: State -> Maybe CSS -> H.ComponentHTML Query
+viewBody state outStyle =
+  HH.div
+    [ nameIt "viewBody"
+    , combineStyles style outStyle
     ]
-    where
-      style = do
-        display flex
-        CSS.flexDirection column
-        alignItems Common.center
-        justifyContent Common.center
-        width $ pct 100.0
-        height $ pct 100.0
-
-      styleSlot = do
-        CSS.marginBottom $ vh 7.0
-        width $ pct 100.0
-        display flex
-        flexShrink 0
-        justifyContent Common.center
-
-styleBody =
-  { _main: do
-      display flex
-      CSS.flexDirection column
-      alignItems Common.center
-      justifyContent Common.center
-      width $ pct 100.0
-      height $ pct 100.0
-  , slot: do
-      CSS.marginBottom $ vh 7.0
-      width $ pct 100.0
-      display flex
-      flexShrink 0
-      justifyContent Common.center
-  }
-
-viewButton =
-  HH.div
-    [ CSS.style style ]
-    [ HH.text "x" ]
-    where
-      style = do
-        maxWidth $ px 240.0
-        height $ px 40.0
-
-viewSlot :: forall p i. HTML p i
-viewSlot =
-  HH.div
-    [ CSS.style style ]
-    [ viewBoxAspect 1.0 (HH.div [CSS.style tmp ] [HH.text "a"])
-    , viewBoxAspect 1.0 (HH.div [CSS.style tmp ] [HH.text ""])
-    , viewBoxAspect 1.0 (HH.div [CSS.style tmp ] [HH.text ""])
+    [ viewSlot state (Just styleSlot)
+    , viewButton Nothing
     ]
   where
-    tmp = do
-      boxSizing borderBox
-      width (pct 100.0)
-      height (pct 100.0)
+    style = do
+      display flex
+      flexDirection column
+      alignItems CMN.center
+      justifyContent CMN.center
+      width $ pct 100.0
+      height $ pct 100.0
 
+    styleSlot = do
+      marginBottom $ vh 7.0
+      flexShrink 0
+      justifyContent CMN.center
+
+--------------------------------------------------------------------------------
+
+viewSlot :: State -> Maybe CSS -> H.ComponentHTML Query
+viewSlot state outStyle =
+  HH.div
+    [ nameIt "viewSlot"
+    , combineStyles style outStyle
+    ]
+    ( map
+        (\index -> viewReel { index } Nothing)
+        (toArray state)
+    )
+  where
     style = do
       display flex
       flexDirection row
       maxWidth $ px 600.0
       width $ pct 100.0
-      flexShrink 0
 
-viewSvg :: forall p i. Assets_Svg -> HTML p i
-viewSvg file =
+--------------------------------------------------------------------------------
+
+viewReel :: { index :: Int } -> Maybe CSS -> H.ComponentHTML Query
+viewReel { index } outStyle =
+  viewBoxAspect
+    { aspect : 1.0 }
+    Nothing
+    ( HH.div
+        [CSS.style styleReel]
+        [HH.text $ show index]
+    )
+  where
+    styleReel = do
+      boxSizing borderBox
+      width (pct 100.0)
+      height (pct 100.0)
+
+--------------------------------------------------------------------------------
+
+viewButton :: Maybe CSS -> H.ComponentHTML Query
+viewButton outStyle =
+  HH.div
+    [ nameIt "viewButton"
+    , combineStyles style outStyle
+    , HE.onClick (input_ Roll)
+    ]
+    [ HH.text "AAA" ]
+    where
+      style = do
+        maxWidth $ px 240.0
+        height $ px 40.0
+
+--------------------------------------------------------------------------------
+
+viewSvg :: Assets_Svg -> Maybe CSS -> H.ComponentHTML Query
+viewSvg file outStyle =
   HH.img
-    [ HP.src path
-    , CSS.style style
+    [ nameIt "viewSvg"
+    , combineStyles style outStyle
+    , HP.src path
     ]
   where
     File path = assets_svg file
     style = do
       flexShrink 1
       flexGrow 1
---      width $ px 30.0
---      height $ px 30.0
 
-viewVertical :: Int -> forall p i. HTML p i
-viewVertical index =
-  HH.div
-      [ CSS.style stylePassepartout ]
-      [ placeholder
-      --, HH.div
-        --[ CSS.style style]
-        --[] -- (map viewSvg xs)
-      ]
-  where
-    xs :: Array Assets_Svg
-    xs = enumFromTo bottom top
+--------------------------------------------------------------------------------
 
-    placeholder = maybe (HH.text "") viewSvg (head xs)
-
-    stylePassepartout = do
-      border solid (px 1.0) black
---      overflow hidden
-      display flex
-      flexShrink 1
-      flexGrow 1
-
-    style = do
-      display flex
-      flexDirection column
-      transform (translate (px 0.0) (px (-30.0 * toNumber index)))
-
-viewLink :: forall p i. Link -> HTML p i
-viewLink { text, href, title, target } =
+viewLink :: Link -> Maybe CSS -> H.ComponentHTML Query
+viewLink { text, href, title, target } outStyle =
   HH.a
-    (  [ HP.href href
-       , HP.title (maybe text id title)
-       , CSS.style style
-       ]
-    <> maybe mempty (pure <<< HP.target) target
+    ( [ nameIt "viewLink"
+      , combineStyles style outStyle
+      , HP.href href
+      , HP.title (maybe text id title)
+      ]
+      <> maybe mempty (pure <<< HP.target) target
     )
     [ HH.text text ]
     where
       style = do
         color colors.link
 
-viewCopy :: forall p i. Copy -> HTML p i
-viewCopy copy =
+--------------------------------------------------------------------------------
+
+viewCopy :: Copy -> Maybe CSS -> H.ComponentHTML Query
+viewCopy copy outStyle =
   HH.div
-    [ CSS.style style
-    ]
+    [ nameIt "viewCopy", combineStyles style outStyle ]
     (map viewElem copy)
     where
       style = do
@@ -260,12 +226,20 @@ viewCopy copy =
 
       viewElem = case _ of
         CpStr str -> HH.text str
-        CpLink link -> viewLink link
+        CpLink link -> viewLink link Nothing
 
-viewBoxAspect :: forall p i. Number -> HTML p i -> HTML p i
-viewBoxAspect aspect children =
+--------------------------------------------------------------------------------
+
+viewBoxAspect ::
+  { aspect :: Number }
+  -> Maybe CSS
+  -> H.ComponentHTML Query
+  -> H.ComponentHTML Query
+viewBoxAspect { aspect } outStyle children =
   HH.div
-    [ CSS.style styleWrapper]
+    [ nameIt "viewBoxAspect"
+    , combineStyles style outStyle
+    ]
     [ HH.div
       [ CSS.style stylePlaceholder ]
       []
@@ -274,7 +248,7 @@ viewBoxAspect aspect children =
       [ children ]
     ]
   where
-    styleWrapper = do
+    style = do
       position relative
       width $ pct 100.0
       height $ pct $ 100.0 / aspect
@@ -291,6 +265,8 @@ viewBoxAspect aspect children =
       CSS.right $ px zero
       CSS.bottom $ px zero
 
+--------------------------------------------------------------------------------
+
 colors ::
   { link :: Color
   , dark :: Color
@@ -299,3 +275,40 @@ colors =
   { link : rgb 175 123 124
   , dark : rgb 53 14 15
   }
+
+nameIt :: forall a b. String -> IProp ( "class" :: String | b ) a
+nameIt str =
+  HP.class_ (ClassName $ "SlotMachine." <> str)
+
+combineStyles :: forall a b. CSS -> Maybe CSS -> IProp ( style :: String | a ) b
+combineStyles style maybeStyle =
+  CSS.style $ maybe style ((<>) style) maybeStyle
+
+--------------------------------------------------------------------------------
+
+-- viewVertical :: Int -> forall p i. HTML p i
+-- viewVertical index =
+--   HH.div
+--       [ CSS.style stylePassepartout ]
+--       [ placeholder
+--       --, HH.div
+--         --[ CSS.style style]
+--         --[] -- (map viewSvg xs)
+--       ]
+--   where
+--     xs :: Array Assets_Svg
+--     xs = enumFromTo bottom top
+
+--     placeholder = maybe (HH.text "") (\x -> viewSvg x Nothing) (head xs)
+
+--     stylePassepartout = do
+--       border solid (px 1.0) black
+-- --      overflow hidden
+--       display flex
+--       flexShrink 1
+--       flexGrow 1
+
+--     style = do
+--       display flex
+--       flexDirection column
+--       transform (translate (px 0.0) (px (-30.0 * toNumber index)))
