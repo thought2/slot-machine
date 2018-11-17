@@ -2,36 +2,43 @@ module SlotMachine where
 
 import Prelude
 
-import Assets (Assets(..), Assets_Svg, File(File), assets_svg)
-import CSS (CSS, Color, absolute, alignItems, block, borderBox, boxSizing, color, column, display, flex, flexDirection, flexGrow, flexShrink, fontFaceFamily, fontSize, fromString, grid, height, inlineBlock, justifyContent, key, lineHeight, marginBottom, maxWidth, padding, paddingTop, pct, position, px, relative, rgb, row, vh, width)
-import CSS (bottom, left, right, top) as CSS
+import Assets (File(File), Svg, assets_svg)
+import CSS (AnimationName(..), CSS, Color, TimingFunction(..), absolute, alignItems, animation, backgroundColor, backwards, block, borderBox, boxSizing, color, column, display, easeOut, flex, flexDirection, flexGrow, flexShrink, fontFaceFamily, fontSize, forwards, fromString, green, grid, height, hover, infinite, inlineBlock, iterationCount, justifyContent, keyframes, lineHeight, linear, margin, marginBottom, maxWidth, normalAnimationDirection, padding, paddingTop, pct, position, px, red, relative, rgb, row, sec, vh, width, with, yellow)
+import CSS as CSS
 import CSS.Common as CMN
-import CSS.Overflow (overflow, overflowAuto)
+import CSS.Overflow (hidden, overflow, overflowAuto)
+import CSS.Selector (element)
+import CSS.Stylesheet (select)
 import CSS.TextAlign (textAlign, center)
 import Control.Monad.Aff (Aff)
 import Control.Monad.Eff.Random (RANDOM, randomInt)
+import Control.Monad.List.Trans (repeat)
 import Copy (Copy, CopyElem(CpLink, CpStr), copy)
-import Data.Array (length)
+import Data.Array (concat, drop, length, range, replicate, snoc, take, (:))
 import Data.Enum (enumFromTo)
+import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid (mempty)
+import Data.NonEmpty (NonEmpty(..), (:|))
 import Data.Traversable (traverse)
+import Data.Tuple (Tuple(..))
+import Data.Tuple.Nested ((/\))
 import Data.Typelevel.Num (D3)
 import Data.Vec (Vec, empty, toArray, (+>))
+import Data.Vec as Vec
+import Debug.Trace (spy)
 import Halogen (ClassName(ClassName), IProp, liftEff)
 import Halogen as H
 import Halogen.HTML as HH
-import Halogen.HTML.CSS (style) as CSS
+import Halogen.HTML.CSS as HCSS
 import Halogen.HTML.Events (input_)
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Types (Link)
 
-
-type State = Vec D3 Int
-
-type Config =
-  { n :: Int
+type State =
+  { reels :: Vec D3 { from :: Int, to :: Int }
+  , extraSpins :: Int
   }
 
 data Query a
@@ -53,7 +60,11 @@ ui =
   where
 
   initialState :: State
-  initialState = 1 +> 2 +> 3 +> empty
+  initialState =
+    { extraSpins : 0
+    , reels : 1 +> 2 +> 3 +> empty
+      # map (\i -> { from : i, to: i})
+    }
 
   render :: State -> H.ComponentHTML Query
   render state =
@@ -63,13 +74,32 @@ ui =
   eval = case _ of
     Roll next -> do
       state <- H.get
-      let l = (enumFromTo bottom top :: Array Assets_Svg) # length
-      randVec <- pure (randomInt 0 (l-1))
+
+      let n = length config.symbols
+
+      randVec :: Vec D3 Int <- pure (randomInt 0 (n-1))
         # traverse id
         # liftEff
-      H.put randVec
+
+      let reels = Vec.zipWith
+           (\to' {to} -> { from : to, to: to' })
+           randVec
+           state.reels
+
+      H.put $ spy (state
+        { extraSpins = 1
+        , reels = reels
+        })
       pure next
 
+--------------------------------------------------------------------------------
+
+config ::
+  { symbols :: Array (File Svg)
+  }
+config =
+  { symbols : enumFromTo bottom top # map assets_svg
+  }
 
 --------------------------------------------------------------------------------
 
@@ -84,9 +114,9 @@ viewMain state outStyle =
     ]
   where
     style = do
-      key (fromString "grid-gap") "20px"
-      key (fromString "grid-template-rows") "1fr auto"
-      key (fromString "grid-gap") "20px"
+      prop "grid-gap" "20px"
+      prop "grid-template-rows" "1fr auto"
+      prop "grid-gap" "20px"
       display grid
       height $ pct 100.0
       boxSizing borderBox
@@ -110,7 +140,7 @@ viewBody state outStyle =
     , combineStyles style outStyle
     ]
     [ viewSlot state (Just styleSlot)
-    , viewButton Nothing
+    , viewButton { onClick : Roll } Nothing
     ]
   where
     style = do
@@ -129,14 +159,14 @@ viewBody state outStyle =
 --------------------------------------------------------------------------------
 
 viewSlot :: State -> Maybe CSS -> H.ComponentHTML Query
-viewSlot state outStyle =
+viewSlot { reels, extraSpins } outStyle =
   HH.div
     [ nameIt "viewSlot"
     , combineStyles style outStyle
     ]
     ( map
-        (\index -> viewReel { index } Nothing)
-        (toArray state)
+        (\{ from, to } -> viewReel { from, to, extraSpins } Nothing)
+        (toArray reels)
     )
   where
     style = do
@@ -147,13 +177,72 @@ viewSlot state outStyle =
 
 --------------------------------------------------------------------------------
 
-viewReel :: { index :: Int } -> Maybe CSS -> H.ComponentHTML Query
-viewReel { index } outStyle =
+viewReel ::
+  { from :: Int, to :: Int, extraSpins :: Int }
+  -> Maybe CSS
+  -> H.ComponentHTML Query
+viewReel { from, to, extraSpins } outStyle =
+  viewBoxAspect
+    { aspect : 1.0 }
+    (Just style)
+    (HH.div
+       [ HCSS.style styleReel ]
+       ( map
+           (\sym -> viewSvg sym (Just styleItem))
+           spinPath
+         # \xs -> snoc xs (HCSS.stylesheet sheet)
+       )
+    )
+  where
+    spinPath = config.symbols
+      # getSpinPath from to extraSpins
+
+    style = do
+      overflow hidden
+
+    animName = "anim" <> show from <> show to
+
+    styleReel = do
+      boxSizing borderBox
+      width (pct 100.0)
+      height (pct 100.0)
+      display flex
+      flexDirection column
+
+    styleItem = do
+      flexGrow 0
+      flexShrink 0
+      margin (pct 5.0) (pct 5.0) (pct 5.0) (pct 5.0)
+      animation
+        (AnimationName $ fromString animName)
+        (sec $ toNumber (length spinPath) * 0.1)
+        (TimingFunction $ fromString "ease-in-out")
+        (sec 0.0)
+        (iterationCount 1.0)
+        normalAnimationDirection
+        backwards
+
+    sheet = do
+      let pctY = -100.0 * toNumber (length spinPath - 1)
+          transformTranslateY n =
+            prop "transform" $ "translateY(" <> show n <> "%)"
+      keyframes
+        animName
+        ( (0.0 /\ do transformTranslateY pctY) :|
+          [ (80.0 /\ do transformTranslateY 20.0)
+          , (100.0 /\ do transformTranslateY 0.0)
+          ]
+        )
+
+
+
+viewReel' :: { index :: Int } -> Maybe CSS -> H.ComponentHTML Query
+viewReel' { index } outStyle =
   viewBoxAspect
     { aspect : 1.0 }
     Nothing
     ( HH.div
-        [CSS.style styleReel]
+        [HCSS.style styleReel]
         [HH.text $ show index]
     )
   where
@@ -164,33 +253,39 @@ viewReel { index } outStyle =
 
 --------------------------------------------------------------------------------
 
-viewButton :: Maybe CSS -> H.ComponentHTML Query
-viewButton outStyle =
+viewButton :: { onClick :: Unit -> Query Unit } -> Maybe CSS -> H.ComponentHTML Query
+viewButton { onClick } outStyle =
   HH.div
-    [ nameIt "viewButton"
+    [ nameIt name
     , combineStyles style outStyle
-    , HE.onClick (input_ Roll)
+    , HE.onClick (input_ onClick)
     ]
-    [ HH.text "AAA" ]
-    where
-      style = do
-        maxWidth $ px 240.0
-        height $ px 40.0
+    [ HH.text "AAA"
+    , HCSS.stylesheet sheet
+    ]
+  where
+    name = "viewButton"
+
+    sheet = select (with (element $ getClassStr name) hover) do
+      backgroundColor red
+
+    style = do
+      maxWidth $ px 240.0
+      height $ px 40.0
+      prop "cursor" "pointer"
 
 --------------------------------------------------------------------------------
 
-viewSvg :: Assets_Svg -> Maybe CSS -> H.ComponentHTML Query
-viewSvg file outStyle =
+viewSvg :: File Svg -> Maybe CSS -> H.ComponentHTML Query
+viewSvg (File path) outStyle =
   HH.img
     [ nameIt "viewSvg"
     , combineStyles style outStyle
     , HP.src path
     ]
   where
-    File path = assets_svg file
     style = do
-      flexShrink 1
-      flexGrow 1
+      prop "zoom" "0"
 
 --------------------------------------------------------------------------------
 
@@ -205,9 +300,9 @@ viewLink { text, href, title, target } outStyle =
       <> maybe mempty (pure <<< HP.target) target
     )
     [ HH.text text ]
-    where
-      style = do
-        color colors.link
+  where
+    style = do
+      color colors.link
 
 --------------------------------------------------------------------------------
 
@@ -216,17 +311,17 @@ viewCopy copy outStyle =
   HH.div
     [ nameIt "viewCopy", combineStyles style outStyle ]
     (map viewElem copy)
-    where
-      style = do
-        fontFaceFamily "Arial"
-        fontSize $ px 9.0
-        color colors.dark
-        textAlign center
-        lineHeight $ px 12.0
+  where
+    style = do
+      fontFaceFamily "Arial"
+      fontSize $ px 9.0
+      color colors.dark
+      textAlign center
+      lineHeight $ px 12.0
 
-      viewElem = case _ of
-        CpStr str -> HH.text str
-        CpLink link -> viewLink link Nothing
+    viewElem = case _ of
+      CpStr str -> HH.text str
+      CpLink link -> viewLink link Nothing
 
 --------------------------------------------------------------------------------
 
@@ -241,10 +336,10 @@ viewBoxAspect { aspect } outStyle children =
     , combineStyles style outStyle
     ]
     [ HH.div
-      [ CSS.style stylePlaceholder ]
+      [ HCSS.style stylePlaceholder ]
       []
     , HH.div
-      [ CSS.style styleContent ]
+      [ HCSS.style styleContent ]
       [ children ]
     ]
   where
@@ -278,37 +373,36 @@ colors =
 
 nameIt :: forall a b. String -> IProp ( "class" :: String | b ) a
 nameIt str =
-  HP.class_ (ClassName $ "SlotMachine." <> str)
+  HP.class_ (ClassName $ moduleName <> "_" <> str)
+
+moduleName :: String
+moduleName = "SlotMachine"
 
 combineStyles :: forall a b. CSS -> Maybe CSS -> IProp ( style :: String | a ) b
 combineStyles style maybeStyle =
-  CSS.style $ maybe style ((<>) style) maybeStyle
+  HCSS.style $ maybe style ((<>) style) maybeStyle
 
---------------------------------------------------------------------------------
+getClassStr :: String -> String
+getClassStr name =
+  "." <> moduleName <> "_" <> name
 
--- viewVertical :: Int -> forall p i. HTML p i
--- viewVertical index =
---   HH.div
---       [ CSS.style stylePassepartout ]
---       [ placeholder
---       --, HH.div
---         --[ CSS.style style]
---         --[] -- (map viewSvg xs)
---       ]
---   where
---     xs :: Array Assets_Svg
---     xs = enumFromTo bottom top
+prop :: String -> String -> CSS
+prop key value =
+  CSS.key (fromString key) value
 
---     placeholder = maybe (HH.text "") (\x -> viewSvg x Nothing) (head xs)
+getSpinPath :: forall a. Int -> Int -> Int -> Array a -> Array a
+getSpinPath from to extraSpins xs =
+  path <> extra
+  where
+    path =
+      if to >= from then
+        drop from xs
+        # take (to + 1 - from)
+      else
+        drop from xs
+        <> take (to + 1) xs
 
---     stylePassepartout = do
---       border solid (px 1.0) black
--- --      overflow hidden
---       display flex
---       flexShrink 1
---       flexGrow 1
-
---     style = do
---       display flex
---       flexDirection column
---       transform (translate (px 0.0) (px (-30.0 * toNumber index)))
+    extra = drop (to + 1) xs
+      <> take (to + 1) xs
+       # replicate extraSpins
+       # concat
