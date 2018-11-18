@@ -11,7 +11,7 @@
     "get-blender-scenes": "blender --background --python tools/get_scenes.py"
   },
   "name": "slot-machine",
-  "description": "",
+  "description": "Purescript-halogen based implementation of a casino slot-machine.",
   "version": "1.0.0",
   "main": "index.js",
   "keywords": [],
