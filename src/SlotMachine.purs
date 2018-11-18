@@ -248,7 +248,7 @@ viewSlot { reels } outStyle =
     style = do
       display flex
       flexDirection row
-      maxWidth $ px 600.0
+      maxWidth $ px 800.0
       width $ pct 100.0
 
 --------------------------------------------------------------------------------
