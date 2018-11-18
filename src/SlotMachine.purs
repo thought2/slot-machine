@@ -15,7 +15,7 @@ import CSS.Display (absolute, block, display, grid, inlineBlock, position, relat
 import CSS.Flexbox (alignItems, column, flexDirection, flexGrow, flexShrink, justifyContent, row)
 import CSS.Font (bold, color, fontSize, fontWeight)
 import CSS.FontFace (fontFaceFamily)
-import CSS.Geometry (height, lineHeight, margin, marginBottom, maxWidth, padding, paddingTop, width)
+import CSS.Geometry (height, lineHeight, margin, marginBottom, marginLeft, marginRight, maxWidth, padding, paddingTop, width)
 import CSS.Gradient (linearGradient)
 import CSS.Overflow (hidden, overflow, overflowAuto)
 import CSS.Pseudo (hover)
@@ -272,7 +272,7 @@ viewReel { from, to, extraSpins, occurences, maxSpinPathLength, randInt } outSty
         [ HH.div
             [ HCSS.style styleReel ]
             (map viewReelItem spinPath <> [ HCSS.stylesheet sheetReel ])
-        , HH.div [HCSS.style styleBlend] [  ]
+        , HH.div [ HCSS.style styleBlend ] [  ]
         , HCSS.stylesheet sheet
         ]
     )
@@ -289,7 +289,8 @@ viewReel { from, to, extraSpins, occurences, maxSpinPathLength, randInt } outSty
       overflow hidden
       backgroundColor colors.lightGrey
       borderRadius (pct 15.0) (pct 15.0) (pct 15.0) (pct 15.0)
-      margin (pct 2.0) (pct 2.0) (pct 2.0) (pct 2.0)
+      marginRight (pct 2.0)
+      marginLeft (pct 2.0)
       if occurences > 1
          then mixinDefaultAnimation
            { name : animName
@@ -311,6 +312,7 @@ viewReel { from, to, extraSpins, occurences, maxSpinPathLength, randInt } outSty
             )
           ]
         )
+
 
     styleBlend = do
       let transparent = rgba zero zero zero zero
